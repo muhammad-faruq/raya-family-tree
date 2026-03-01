@@ -1,20 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app). It’s a **family tree** app built with [family-chart](https://github.com/donatso/family-chart), SQLite, and light/dark theme support.
+
+## How to run the project
+
+**Prerequisites:** Node.js 18+ and npm.
+
+1. **Go to the project folder** (the one that contains `package.json` and `src/`):
+   ```bash
+   cd path/to/family-tree
+   ```
+   If you cloned into `family-tree` and the app lives in a nested `family-tree` folder, use:
+   ```bash
+   cd path/to/family-tree/family-tree
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+
+4. **Open the app:** go to [http://localhost:3000](http://localhost:3000) in your browser.
+
+The first time you load the app, a SQLite database (`family-tree.db`) is created and seeded with sample data. You can edit, add, and remove people in the tree; changes are saved to the database.
+
+---
 
 ## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
