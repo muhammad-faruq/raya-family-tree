@@ -33,3 +33,70 @@
 .f3 path.link {
   stroke: var(--link-stroke) !important;
 }
+
+/* ========== Edit/Add person form (uses theme variables from themes.css) ========== */
+.f3-form-cont {
+  background-color: var(--theme-form-bg) !important;
+}
+
+.f3-form,
+.f3-form .f3-info-field-label,
+.f3-form .f3-form-field label {
+  color: var(--theme-form-text);
+}
+
+.f3-form .f3-form-field label {
+  opacity: var(--theme-form-label-opacity);
+}
+
+.f3-form input[type="text"],
+.f3-form textarea,
+.f3-form select {
+  background-color: var(--theme-form-bg) !important;
+  color: var(--theme-form-text);
+  border-color: var(--theme-form-input-border) !important;
+}
+
+.f3-form input[type="text"]:focus,
+.f3-form textarea:focus,
+.f3-form select:focus {
+  box-shadow: 0 0 0 2px var(--theme-form-input-focus-ring);
+}
+
+.f3-form button[type="submit"] {
+  background-color: var(--theme-form-submit-bg) !important;
+  color: var(--theme-form-submit-text) !important;
+}
+
+.f3-cancel-btn {
+  background-color: var(--theme-form-cancel-bg) !important;
+  color: var(--theme-form-cancel-text) !important;
+}
+
+.f3-form .f3-delete-btn {
+  border-color: var(--theme-form-delete-border) !important;
+  color: var(--theme-form-delete-text) !important;
+}
+
+.f3-delete-btn:hover {
+  background-color: var(--theme-form-delete-hover-bg) !important;
+  border-color: var(--theme-form-delete-hover-bg) !important;
+  color: #fff !important;
+}
+
+.f3-form .f3-remove-relative-btn {
+  border-color: var(--theme-form-remove-border) !important;
+  color: var(--theme-form-text);
+}
+
+.f3-remove-relative-btn:hover,
+.f3-remove-relative-btn.active {
+  background-color: var(--theme-form-remove-border);
+  border-color: var(--theme-form-remove-border) !important;
+  color: var(--theme-form-bg) !important;
+}
+
+.f3-info-field-value {
+  border-bottom-color: var(--theme-form-input-border) !important;
+  color: var(--theme-form-text);
+}
