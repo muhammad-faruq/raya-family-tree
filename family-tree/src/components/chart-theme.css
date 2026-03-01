@@ -1,0 +1,54 @@
+/* Override family-chart defaults so light/dark theme actually apply.
+   Imported after family-chart.css so these win. */
+
+/* Light theme: cream & sage palette (#F6F0D7, #C5D89D, #9CAB84, #89986D) */
+.f3 {
+  --background-color: #F6F0D7;
+  --text-color: #191b15;
+  --female-color: #C5D89D;
+  --male-color: #939989;
+  --genderless-color: #9CAB84;
+  --link-stroke: #171a14;
+  --card-main-outline: #89986D;
+  --card-path-outline: #9CAB84;
+}
+
+.f3#FamilyChart {
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+.f3 .card_add .card-body-rect {
+  fill: #89986D;
+}
+
+/* Selected card outline (focused/main person) */
+.f3 div.card-main .card-inner {
+  outline: 4px solid var(--card-main-outline) !important;
+}
+
+/* Path-to-main highlight (cards on path to selected person) */
+.f3 div.card-inner.f3-path-to-main {
+  outline: 4px solid var(--card-path-outline) !important;
+}
+
+/* Connector lines between cards */
+.f3 path.link {
+  stroke: var(--link-stroke) !important;
+}
+
+/* Dark theme */
+.dark .f3 {
+  --background-color: #1C1C1C;
+  --text-color: #2C2C2C;
+  --female-color: #FFC1CC;
+  --male-color: #A8DADC;
+  --genderless-color: #B39CD0;
+  --link-stroke: #F5E8D8;
+  --card-main-outline: #e2e8f0;
+  --card-path-outline: #94a3b8;
+}
+
+.dark .f3 .card_add .card-body-rect {
+  fill: #0e7490;
+}
