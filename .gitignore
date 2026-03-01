@@ -21,7 +21,7 @@
 /build
 
 # sqlite
-family-tree.db
+# family-tree.db This is allowed to be committed because its not sensitive anyways. Maybe in the future we will not push
 
 # misc
 .DS_Store
