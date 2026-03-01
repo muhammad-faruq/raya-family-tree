@@ -35,4 +35,4 @@ body {
   font-size: 11px;
 }
 
-/* Chart theme variables moved to chart-theme.css (loaded after family-chart so they override) */
+/* Theme colors: see themes.css (single source for light/dark) */
