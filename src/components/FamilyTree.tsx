@@ -1,16 +1,29 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import * as d3 from "d3";
 import * as f3 from "family-chart";
 import "family-chart/styles/family-chart.css";
 import "./chart-theme.css";
+import OverviewTree from "./OverviewTree";
 
 const DATA_URL = "/api/family";
 
 export default function FamilyTree() {
   const cont = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReturnType<typeof f3.createChart> | null>(null);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
+  // ── Toggle overview on Escape ──────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOverviewOpen((prev) => !prev);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // ── Build the family-chart (runs once) ────────────────────────────────────
   useEffect(() => {
     if (!cont.current) return;
     fetch(DATA_URL)
@@ -25,6 +38,8 @@ export default function FamilyTree() {
         .setCardXSpacing(250)
         .setCardYSpacing(150)
         .setShowSiblingsOfMain(true);
+
+      chartRef.current = f3Chart;
 
       const f3Card = f3Chart
         .setCardHtml()
@@ -127,16 +142,62 @@ export default function FamilyTree() {
     }
   }, []);
 
+  // ── When user clicks a person in overview, focus them in the normal chart ──
+  const handleSelectPerson = useCallback((id: string) => {
+    if (!chartRef.current) return;
+    try {
+      chartRef.current.updateMainId(id);
+      chartRef.current.updateTree({ initial: false });
+    } catch {
+      // graceful — some versions of family-chart may use a different API
+    }
+  }, []);
+
   return (
-    <div
-      className="f3"
-      id="FamilyChart"
-      ref={cont}
-      style={{
-        width: "100%",
-        height: "900px",
-        margin: "auto",
-      }}
-    />
+    <>
+      {/* Escape hint shown in the normal view */}
+      {!overviewOpen && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.45)",
+            backdropFilter: "blur(6px)",
+            color: "rgba(255,255,255,0.55)",
+            fontSize: 12,
+            padding: "6px 16px",
+            borderRadius: 20,
+            pointerEvents: "none",
+            letterSpacing: "0.04em",
+            zIndex: 40,
+          }}
+        >
+          Press <kbd style={{ fontFamily: "monospace", opacity: 0.8 }}>Esc</kbd> for full family overview
+        </div>
+      )}
+
+      {/* Normal interactive chart — always mounted so state is preserved */}
+      <div
+        className="f3"
+        id="FamilyChart"
+        ref={cont}
+        style={{
+          width: "100%",
+          height: "900px",
+          margin: "auto",
+          visibility: overviewOpen ? "hidden" : "visible",
+        }}
+      />
+
+      {/* Overview mode */}
+      {overviewOpen && (
+        <OverviewTree
+          onSelectPerson={handleSelectPerson}
+          onClose={() => setOverviewOpen(false)}
+        />
+      )}
+    </>
   );
 }
