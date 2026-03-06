@@ -1,0 +1,101 @@
+/**
+ * Single source of truth for light and dark theme colors.
+ * Change values here to update the whole app: page, header, chart, and edit/add person form.
+ */
+
+/* ========== LIGHT THEME ========== */
+:root {
+  /* Page */
+  --theme-page-bg: #F6F0D7;
+  --theme-page-text: #89986D;
+
+  /* Header */
+  --theme-header-bg: rgba(197, 216, 157, 0.6);
+  --theme-header-border: #9CAB84;
+  --theme-header-title: #89986D;
+  --theme-header-subtitle: rgba(137, 152, 109, 0.9);
+
+  /* Chart (family-chart) */
+  --theme-chart-bg: #F6F0D7;
+  --theme-chart-text: #191b15;
+  --theme-chart-female: #C5D89D;
+  --theme-chart-male: #939989;
+  --theme-chart-genderless: #9CAB84;
+  --theme-chart-link: #171a14;
+  --theme-chart-card-main-outline: #89986D;
+  --theme-chart-card-path-outline: #9CAB84;
+  --theme-chart-card-add-fill: #89986D;
+
+  /* Edit/Add person form (family-chart modal) */
+  --theme-form-bg: #F6F0D7;
+  --theme-form-text: #191b15;
+  --theme-form-input-border: #9CAB84;
+  --theme-form-input-focus-ring: rgba(137, 152, 109, 0.3);
+  --theme-form-submit-bg: #89986D;
+  --theme-form-submit-text: #fff;
+  --theme-form-cancel-bg: #C5D89D;
+  --theme-form-cancel-text: #191b15;
+  --theme-form-delete-border: #c53030;
+  --theme-form-delete-text: #c53030;
+  --theme-form-delete-hover-bg: #c53030;
+  --theme-form-remove-border: #9CAB84;
+  --theme-form-label-opacity: 0.85;
+}
+
+/* ========== DARK THEME ========== */
+.dark {
+  /* Page */
+  --theme-page-bg: #1C1C1C;
+  --theme-page-text: #e2e8f0;
+
+  /* Header */
+  --theme-header-bg: rgba(38, 38, 38, 0.9);
+  --theme-header-border: #525252;
+  --theme-header-title: #f5f5f5;
+  --theme-header-subtitle: #a3a3a3;
+
+  /* Chart */
+  --theme-chart-bg: #1C1C1C;
+  --theme-chart-text: #2C2C2C;
+  --theme-chart-female: #FFC1CC;
+  --theme-chart-male: #A8DADC;
+  --theme-chart-genderless: #B39CD0;
+  --theme-chart-link: #F5E8D8;
+  --theme-chart-card-main-outline: #e2e8f0;
+  --theme-chart-card-path-outline: #94a3b8;
+  --theme-chart-card-add-fill: #0e7490;
+
+  /* Edit/Add person form */
+  --theme-form-bg: #1C1C1C;
+  --theme-form-text: #e2e8f0;
+  --theme-form-input-border: #525252;
+  --theme-form-input-focus-ring: rgba(148, 163, 184, 0.4);
+  --theme-form-submit-bg: #0e7490;
+  --theme-form-submit-text: #fff;
+  --theme-form-cancel-bg: #404040;
+  --theme-form-cancel-text: #e2e8f0;
+  --theme-form-delete-border: #f87171;
+  --theme-form-delete-text: #f87171;
+  --theme-form-delete-hover-bg: #dc2626;
+  --theme-form-remove-border: #94a3b8;
+  --theme-form-label-opacity: 0.9;
+}
+
+/* ========== APP LAYOUT (uses theme variables) ========== */
+.theme-page {
+  background-color: var(--theme-page-bg);
+  color: var(--theme-page-text);
+}
+
+.theme-header {
+  background-color: var(--theme-header-bg);
+  border-color: var(--theme-header-border);
+}
+
+.theme-header-title {
+  color: var(--theme-header-title);
+}
+
+.theme-header-subtitle {
+  color: var(--theme-header-subtitle);
+}
