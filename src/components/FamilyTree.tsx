@@ -4,10 +4,88 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import * as d3 from "d3";
 import * as f3 from "family-chart";
 import "family-chart/styles/family-chart.css";
+import "cropperjs/dist/cropper.css";
 import "./chart-theme.css";
 import OverviewTree from "./OverviewTree";
 
 const DATA_URL = "/api/family";
+
+/** Opens a modal to crop an image to a square; calls onDone with the cropped data URL or null if cancelled. */
+function openCropModal(imageDataUrl: string, onDone: (croppedDataUrl: string | null) => void) {
+  const overlay = document.createElement("div");
+  overlay.className = "f3-crop-overlay";
+  overlay.innerHTML = `
+    <div class="f3-crop-modal">
+      <div class="f3-crop-header">
+        <span class="f3-crop-title">Crop to square</span>
+        <div class="f3-crop-actions">
+          <button type="button" class="f3-crop-cancel">Cancel</button>
+          <button type="button" class="f3-crop-apply">Apply</button>
+        </div>
+      </div>
+      <div class="f3-crop-body">
+        <img src="" alt="Crop" class="f3-crop-image" />
+      </div>
+    </div>
+  `;
+
+  const img = overlay.querySelector(".f3-crop-image") as HTMLImageElement;
+  const btnCancel = overlay.querySelector(".f3-crop-cancel") as HTMLButtonElement;
+  const btnApply = overlay.querySelector(".f3-crop-apply") as HTMLButtonElement;
+
+  if (!img || !btnCancel || !btnApply) return;
+
+  img.src = imageDataUrl;
+  document.body.appendChild(overlay);
+
+  type CropperInstance = {
+    destroy: () => void;
+    getCroppedCanvas: (opts?: { width?: number; height?: number; imageSmoothingQuality?: string }) => HTMLCanvasElement;
+  };
+  let cropper: CropperInstance | null = null;
+
+  function close(result: string | null) {
+    if (cropper) {
+      cropper.destroy();
+      cropper = null;
+    }
+    overlay.remove();
+    onDone(result);
+  }
+
+  btnCancel.addEventListener("click", () => close(null));
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close(null);
+  });
+
+  img.addEventListener("load", () => {
+    import("cropperjs")
+      .then((mod) => {
+        cropper = new mod.default(img, {
+          aspectRatio: 1,
+          viewMode: 1,
+          dragMode: "move",
+          autoCropArea: 0.8,
+        });
+      })
+      .catch((err) => {
+        console.error("Failed to load cropper:", err);
+        close(imageDataUrl);
+      });
+  });
+  img.addEventListener("error", () => close(null));
+
+  btnApply.addEventListener("click", () => {
+    if (!cropper) return;
+    const canvas = cropper.getCroppedCanvas({
+      width: 256,
+      height: 256,
+      imageSmoothingQuality: "high",
+    });
+    const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    close(croppedDataUrl);
+  });
+}
 
 export default function FamilyTree() {
   const cont = useRef<HTMLDivElement>(null);
@@ -125,6 +203,66 @@ export default function FamilyTree() {
         .fixed()
         .setFields(["first name", "last name", "birthday", "avatar"])
         .setEditFirst(true);
+
+      f3EditTree.setOnFormCreation(({ cont }) => {
+        const avatarInput = cont.querySelector<HTMLInputElement>('input[name="avatar"]');
+        if (!avatarInput) return;
+        const field = avatarInput.closest(".f3-form-field");
+        if (!field) return;
+
+        avatarInput.setAttribute("type", "hidden");
+        avatarInput.classList.add("f3-avatar-value");
+
+        const accept = "image/jpeg,image/png,image/gif,image/webp";
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = accept;
+        fileInput.className = "f3-avatar-file-input";
+        fileInput.setAttribute("aria-label", "Upload avatar image");
+
+        const fileLabel = document.createElement("span");
+        fileLabel.className = "f3-avatar-file-label";
+        fileLabel.textContent = "Choose File";
+
+        const fileWrap = document.createElement("div");
+        fileWrap.className = "f3-avatar-file-wrap";
+        fileWrap.appendChild(fileInput);
+        fileWrap.appendChild(fileLabel);
+
+        const preview = document.createElement("img");
+        preview.className = "f3-avatar-preview";
+        preview.alt = "Avatar preview";
+        preview.style.display = "none";
+        if (avatarInput.value && avatarInput.value.startsWith("data:image")) {
+          preview.src = avatarInput.value;
+          preview.style.display = "block";
+        }
+
+        const wrap = document.createElement("div");
+        wrap.className = "f3-avatar-upload";
+        wrap.appendChild(fileWrap);
+        wrap.appendChild(preview);
+        field.appendChild(wrap);
+
+        fileInput.addEventListener("change", () => {
+          const file = fileInput.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            if (!dataUrl) return;
+            openCropModal(dataUrl, (croppedDataUrl) => {
+              if (croppedDataUrl) {
+                avatarInput.value = croppedDataUrl;
+                preview.src = croppedDataUrl;
+                preview.style.display = "block";
+              }
+              fileInput.value = "";
+            });
+          };
+          reader.readAsDataURL(file);
+        });
+      });
 
       f3EditTree.setEdit();
 

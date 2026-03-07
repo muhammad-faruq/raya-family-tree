@@ -18,6 +18,21 @@
   color: var(--text-color);
 }
 
+/* Card padding so text and icons don’t sit on the edge */
+.f3 .card-inner {
+  padding: 5px 5px !important;
+  box-sizing: border-box;
+}
+
+.f3 div.card-rect {
+  padding: 10px 14px !important;
+}
+
+.f3 div.card-image-rect .card-label {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 .f3 .card_add .card-body-rect {
   fill: var(--theme-chart-card-add-fill);
 }
@@ -107,4 +122,121 @@
 .f3-info-field-value {
   border-bottom-color: var(--theme-form-input-border) !important;
   color: var(--theme-form-text);
+}
+
+/* Avatar upload (file → base64) */
+.f3-avatar-upload {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.f3-avatar-file-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.f3-avatar-file-input {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 0;
+}
+
+.f3-avatar-file-label {
+  display: inline-block;
+  padding: 6px 12px;
+  font-size: 14px;
+  background-color: var(--theme-form-cancel-bg);
+  color: var(--theme-form-text);
+  border: 1px solid var(--theme-form-input-border);
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.f3-avatar-preview {
+  max-width: 80px;
+  max-height: 80px;
+  width: auto;
+  height: auto;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--theme-form-input-border);
+}
+
+/* Crop modal (square avatar crop) */
+.f3-crop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.f3-crop-modal {
+  background: var(--theme-form-bg);
+  color: var(--theme-form-text);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.f3-crop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--theme-form-input-border);
+}
+
+.f3-crop-title {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.f3-crop-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.f3-crop-actions button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--theme-form-input-border);
+  background: var(--theme-form-cancel-bg);
+  color: var(--theme-form-text);
+}
+
+.f3-crop-actions .f3-crop-apply {
+  background: var(--theme-form-submit-bg);
+  color: var(--theme-form-submit-text);
+  border-color: var(--theme-form-submit-bg);
+}
+
+.f3-crop-body {
+  padding: 16px;
+  max-height: 70vh;
+  min-height: 200px;
+}
+
+.f3-crop-body .f3-crop-image {
+  max-width: 100%;
+  max-height: 60vh;
+  display: block;
 }
