@@ -6,20 +6,22 @@
 /* ========== LIGHT THEME ========== */
 :root {
   /* Page */
-  --theme-page-bg: #F6F0D7;
-  --theme-page-text: #89986D;
+  --theme-page-bg: #b0b0b6;
+  --theme-page-text: #555555;
 
   /* Header */
-  --theme-header-bg: rgba(197, 216, 157, 0.6);
+  --theme-header-bg: rgb(172, 172, 172);
   --theme-header-border: #9CAB84;
-  --theme-header-title: #89986D;
-  --theme-header-subtitle: rgba(137, 152, 109, 0.9);
+  --theme-header-title: #555555;
+  --theme-header-subtitle: rgba(59, 59, 59, 0.9);
 
   /* Chart (family-chart) */
-  --theme-chart-bg: #F6F0D7;
-  --theme-chart-text: #191b15;
-  --theme-chart-female: #C5D89D;
-  --theme-chart-male: #939989;
+  --theme-chart-bg: #ebebeb;
+  --theme-chart-text: #555555;
+  --theme-chart-female: #e9d8d8;
+  --theme-chart-female-border: #ffffff;
+  --theme-chart-male: #dadbe7;
+  --theme-chart-male-border: #ffffff;
   --theme-chart-genderless: #9CAB84;
   --theme-chart-link: #171a14;
   --theme-chart-card-main-outline: #89986D;
@@ -45,20 +47,20 @@
 /* ========== DARK THEME ========== */
 .dark {
   /* Page */
-  --theme-page-bg: #1C1C1C;
+  --theme-page-bg: #111111;
   --theme-page-text: #e2e8f0;
 
   /* Header */
-  --theme-header-bg: rgba(38, 38, 38, 0.9);
-  --theme-header-border: #525252;
+  --theme-header-bg: rgba(46, 46, 46, 0.9);
+  --theme-header-border: #000000;
   --theme-header-title: #f5f5f5;
-  --theme-header-subtitle: #a3a3a3;
+  --theme-header-subtitle: #dbdbdb;
 
   /* Chart */
-  --theme-chart-bg: #1C1C1C;
-  --theme-chart-text: #2C2C2C;
-  --theme-chart-female: #FFC1CC;
-  --theme-chart-male: #A8DADC;
+  --theme-chart-bg: #111111;
+  --theme-chart-text: #ffffff;
+  --theme-chart-female: #e04f8b;
+  --theme-chart-male: #6285e6;
   --theme-chart-genderless: #B39CD0;
   --theme-chart-link: #F5E8D8;
   --theme-chart-card-main-outline: #e2e8f0;

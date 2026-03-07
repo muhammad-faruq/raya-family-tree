@@ -111,6 +111,7 @@ function isIntegerId(id: string): boolean {
  * Replaces all family data. Automatically calculates generation for any
  * person who doesn't already have one set, based on their relationships:
  *   - Has parents in dataset   → max(parent generations) + 1
+ *   - Has children in dataset  → min(child generations) - 1
  *   - Has a spouse with gen    → same as spouse
  *   - Fallback                 → 0
  */
@@ -188,6 +189,16 @@ export function replaceFamilyData(data: FamilyDatum[]): void {
         .filter((g): g is number => g !== undefined);
       if (parentGens.length > 0) {
         genMap.set(newId, Math.max(...parentGens) + 1);
+        changed = true;
+        continue;
+      }
+
+      // Try children — if I have a child, I'm one generation above them
+      const childGens = (rels.children ?? [])
+        .map((cid) => genMap.get(mapId(cid)))
+        .filter((g): g is number => g !== undefined);
+      if (childGens.length > 0) {
+        genMap.set(newId, Math.min(...childGens) - 1);
         changed = true;
         continue;
       }

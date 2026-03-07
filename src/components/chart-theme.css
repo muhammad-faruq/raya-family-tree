@@ -34,6 +34,14 @@
   stroke: var(--link-stroke) !important;
 }
 
+.f3 .card-female .card-inner {
+  outline: 2px solid var(--theme-chart-female-border) !important;
+}
+
+.f3 .card-male .card-inner {
+  outline: 2px solid var(--theme-chart-male-border) !important;
+}
+
 /* ========== Edit/Add person form (uses theme variables from themes.css) ========== */
 .f3-form-cont {
   background-color: var(--theme-form-bg) !important;

@@ -494,9 +494,9 @@ function SvgCard({ card, onClick }: { card: PositionedCard; onClick: () => void 
     ? "var(--theme-chart-female,#f48fb1)"
     : "rgba(128,128,128,.3)";
   const fillColor = isMale
-    ? "rgba(129,212,250,.08)"
+    ? "rgba(255, 255, 255, 0.3)"
     : isFemale
-    ? "rgba(244,143,177,.08)"
+    ? "rgba(255, 255, 255, 0.3)"
     : "rgba(128,128,128,.05)";
 
   const words = name.split(" ");
