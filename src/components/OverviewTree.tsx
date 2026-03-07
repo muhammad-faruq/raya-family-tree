@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
-interface PersonData {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Person {
   id: string;
   data: {
     "first name"?: string;
@@ -24,541 +26,441 @@ interface OverviewTreeProps {
   onClose: () => void;
 }
 
-const CARD_W      = 90;
-const CARD_H      = 112;
-const H_GAP       = 10;
-const CLUSTER_GAP = 32;
-const ROW_H       = 195;
-const COUPLE_GAP  = 8;
-const PAD_X       = 80;
-const PAD_Y       = 48;
-const BOX_PAD     = 10;
-const BOX_R       = 10;
+// ─── Layout constants ─────────────────────────────────────────────────────────
 
-function getName(p: PersonData) {
+const CW     = 90;   // card width
+const CH     = 112;  // card height
+const HGAP   = 14;   // gap between cards in a row
+const CGAP   = 48;   // gap between sibling clusters
+const ROWH   = 230;  // vertical distance between generations
+const SPGAP  = 8;    // gap between spouses
+const PADX   = 100;
+const PADY   = 60;
+const BOXPAD = 12;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getName(p: Person) {
   return [p.data["first name"], p.data["last name"]].filter(Boolean).join(" ");
 }
-function getYear(p: PersonData) {
+function getYear(p: Person) {
   const b = p.data.birthday ?? "";
   return b.length > 4 ? b.slice(-4) : b;
 }
-function unitW(ids: string[]) {
-  return ids.length === 2 ? CARD_W * 2 + COUPLE_GAP : CARD_W;
+function coupleW(n: number) {
+  return n === 2 ? CW * 2 + SPGAP : CW;
 }
 
-// ─── Core data model ──────────────────────────────────────────────────────────
-// A "couple unit" = one or two people treated as a single entity for layout.
-// parentIds = the parents of this unit (inherited from whichever spouse has parents).
+// ─── Layout types ─────────────────────────────────────────────────────────────
+
 interface CoupleUnit {
-  ids: string[];          // [personId] or [personId, spouseId]
-  parentIds: string[];    // parents in dataset (used for grouping)
-  ownParentIds: string[]; // each person's own parents (may differ for nucleus)
-  children: string[];     // all shared children
-  isNucleus: boolean;     // both spouses have their own separate parents
-}
-
-// A "sibling group" = all couple units sharing the same parents → one box on screen
-interface SiblingGroup {
+  ids: string[];
   parentIds: string[];
-  units: CoupleUnit[];
+  ownParentIds: string[];
+  isNucleus: boolean;
 }
 
-function buildCoupleUnits(
-  genPeople: PersonData[],
-  byId: Map<string, PersonData>,
+interface Card {
+  id: string;
+  person: Person;
+  x: number; y: number; cx: number;
+}
+
+interface Box {
+  x: number; y: number; w: number; h: number;
+  memberIds: string[];
+  parentIds: string[];
+}
+
+interface Connector {
+  fromX: number; fromY: number;
+  toX: number;   toY: number;
+  parentIds: string[];
+  memberIds: string[];
+}
+
+interface SpouseLine {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  ids: [string, string];
+}
+
+interface Layout {
+  cards: Card[];
+  boxes: Box[];
+  connectors: Connector[];
+  spouseLines: SpouseLine[];
+  width: number; height: number;
+}
+
+// ─── Build couple units for one generation ────────────────────────────────────
+
+function buildCouples(
+  genPeople: Person[],
+  byId: Map<string, Person>,
   allIds: Set<string>
 ): CoupleUnit[] {
-  const used = new Set<string>();
+  const used  = new Set<string>();
   const units: CoupleUnit[] = [];
 
   for (const p of genPeople) {
     if (used.has(p.id)) continue;
     used.add(p.id);
 
-    const gen = p.data.generation ?? 0;
+    const gen      = p.data.generation ?? 0;
     const spouseId = (p.rels.spouses ?? []).find(
-      sid => allIds.has(sid) && !used.has(sid) && (byId.get(sid)?.data.generation ?? 0) === gen
+      sid => allIds.has(sid) && !used.has(sid) &&
+             (byId.get(sid)?.data.generation ?? 0) === gen
     );
-    const spouse = spouseId ? byId.get(spouseId)! : null;
     if (spouseId) used.add(spouseId);
 
-    const pParents = (p.rels.parents ?? []).filter(pid => allIds.has(pid));
-    const sParents = spouse ? (spouse.rels.parents ?? []).filter(pid => allIds.has(pid)) : [];
-
-    // Both spouses have their own parents → nucleus couple
-    const isNucleus = pParents.length > 0 && sParents.length > 0;
-
-    // For grouping: use whoever has parents; if neither, unit is a root
-    const groupParents = pParents.length > 0 ? pParents : sParents;
-
-    const children = [
-      ...new Set([
-        ...(p.rels.children ?? []),
-        ...(spouse?.rels.children ?? []),
-      ]),
-    ].filter(cid => allIds.has(cid));
+    const pParents = (p.rels.parents ?? []).filter(id => allIds.has(id));
+    const sParents = spouseId
+      ? (byId.get(spouseId)?.rels.parents ?? []).filter(id => allIds.has(id))
+      : [];
 
     units.push({
-      ids: spouseId ? [p.id, spouseId] : [p.id],
-      parentIds: groupParents,
-      ownParentIds: pParents, // primary person's own parents
-      children,
-      isNucleus,
+      ids:          spouseId ? [p.id, spouseId] : [p.id],
+      parentIds:    pParents.length > 0 ? pParents : sParents,
+      ownParentIds: pParents,
+      isNucleus:    pParents.length > 0 && sParents.length > 0,
     });
   }
   return units;
 }
 
-function buildSiblingGroups(units: CoupleUnit[]): SiblingGroup[] {
-  const map = new Map<string, SiblingGroup>();
+// ─── Build the full layout ────────────────────────────────────────────────────
 
-  for (const unit of units) {
-    if (unit.isNucleus) {
-      // Nucleus: split into two anchors — primary belongs to their own parents,
-      // spouse belongs to their own parents. They'll be adjacent at the border.
-      // We represent this by adding the unit to BOTH groups with a flag.
-      // Layout will handle placing nucleus at right-end of groupA, spouse at left-end of groupB.
-      // Here we just put the whole unit under the primary's parents for grouping purposes —
-      // the layout engine handles the special split placement.
-      const key = [...unit.parentIds].sort().join("+") || `root-${unit.ids[0]}`;
-      if (!map.has(key)) map.set(key, { parentIds: unit.parentIds, units: [] });
-      map.get(key)!.units.push(unit);
-    } else {
-      const key = unit.parentIds.length > 0
-        ? [...unit.parentIds].sort().join("+")
-        : `root-${unit.ids[0]}`;
-      if (!map.has(key)) map.set(key, { parentIds: unit.parentIds, units: [] });
-      map.get(key)!.units.push(unit);
-    }
-  }
-
-  return [...map.values()];
-}
-
-// ─── Layout ───────────────────────────────────────────────────────────────────
-
-interface PositionedCard {
-  id: string; person: PersonData;
-  x: number; y: number; cx: number;
-}
-interface SiblingBox { x: number; y: number; w: number; h: number; }
-interface Connector  { fromX: number; fromY: number; toX: number; toY: number; }
-interface CoupleDot  { cx: number; cy: number; }
-interface Layout {
-  cards: PositionedCard[];
-  boxes: SiblingBox[];
-  connectors: Connector[];
-  dots: CoupleDot[];
-  width: number; height: number;
-}
-
-function buildLayout(people: PersonData[]): Layout {
+function buildLayout(people: Person[]): Layout {
   const byId   = new Map(people.map(p => [p.id, p]));
   const allIds = new Set(people.map(p => p.id));
-  const genNumbers = [...new Set(people.map(p => p.data.generation ?? 0))].sort((a, b) => a - b);
+  const gens   = [...new Set(people.map(p => p.data.generation ?? 0))].sort((a, b) => a - b);
+  const cx     = new Map<string, number>(); // relative center-x per person
 
-  // personCX: relative center-x for each person (nucleus midpoint = 0)
-  const personCX = new Map<string, number>();
-
-  // ── Find nucleus couple ──────────────────────────────────────────────────
-  // Nucleus = couple unit where both spouses have their own parents in dataset
+  // ── Find nucleus couple ────────────────────────────────────────────────────
   let nucleusUnit: CoupleUnit | null = null;
-  let nucleusGen = 1;
+  let nucleusGen  = gens[0] ?? 0;
 
-  for (const g of genNumbers) {
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-    const units = buildCoupleUnits(genPeople, byId, allIds);
-    const candidate = units.find(u => u.isNucleus);
-    if (candidate) {
-      nucleusUnit = candidate;
-      nucleusGen = g;
-      break;
-    }
+  for (const g of gens) {
+    const units = buildCouples(people.filter(p => (p.data.generation ?? 0) === g), byId, allIds);
+    const found = units.find(u => u.isNucleus);
+    if (found) { nucleusUnit = found; nucleusGen = g; break; }
   }
 
-  // Fallback: couple with most children
-  if (!nucleusUnit) {
-    let best: CoupleUnit | null = null;
-    let maxC = -1;
-    for (const g of genNumbers) {
-      const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-      const units = buildCoupleUnits(genPeople, byId, allIds);
-      for (const u of units) {
-        if (u.children.length > maxC) { maxC = u.children.length; best = u; nucleusGen = g; }
-      }
-    }
-    nucleusUnit = best;
-  }
+  const nId  = nucleusUnit?.ids[0] ?? people[0]?.id ?? "";
+  const nsId = nucleusUnit?.ids[1] ?? null;
 
-  const nucleusPersonId  = nucleusUnit?.ids[0] ?? people[0]?.id ?? "";
-  const nucleusSpouseId  = nucleusUnit?.ids[1] ?? null;
+  // ── Place nucleus generation ───────────────────────────────────────────────
+  cx.set(nId, -(SPGAP / 2 + CW / 2));
+  if (nsId) cx.set(nsId, SPGAP / 2 + CW / 2);
 
-  // ── Place nucleus gen ────────────────────────────────────────────────────
+  const nsOwnParents = nsId
+    ? (byId.get(nsId)?.rels.parents ?? []).filter(id => allIds.has(id))
+    : [];
+
   {
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === nucleusGen);
-    const allUnits  = buildCoupleUnits(genPeople, byId, allIds);
+    const units     = buildCouples(people.filter(p => (p.data.generation ?? 0) === nucleusGen), byId, allIds);
+    const nonNucleus = units.filter(u => !u.isNucleus);
+    const nKey       = nucleusUnit ? [...nucleusUnit.ownParentIds].sort().join("+") : "";
+    const nsKey      = [...nsOwnParents].sort().join("+");
 
-    // Nucleus sits at center: person at left-of-center, spouse at right-of-center
-    personCX.set(nucleusPersonId, -(COUPLE_GAP / 2 + CARD_W / 2));
-    if (nucleusSpouseId) personCX.set(nucleusSpouseId, COUPLE_GAP / 2 + CARD_W / 2);
+    const leftUnits  = nonNucleus.filter(u => [...u.parentIds].sort().join("+") === nKey);
+    const rightUnits = nonNucleus.filter(u => [...u.parentIds].sort().join("+") === nsKey);
+    const lKeys      = new Set(leftUnits.flatMap(u => u.ids));
+    const rKeys      = new Set(rightUnits.flatMap(u => u.ids));
+    const otherUnits = nonNucleus.filter(u => !u.ids.some(id => lKeys.has(id) || rKeys.has(id)));
 
-    // Non-nucleus units: group by parentIds
-    const nonNucleusUnits = allUnits.filter(u => !u.isNucleus);
-
-    // Nucleus person's parents → these units go to the LEFT of nucleus
-    const nucleusParentKey = nucleusUnit
-      ? [...nucleusUnit.ownParentIds].sort().join("+")
-      : "";
-    // Nucleus spouse's own parents
-    const nucleusSpouseOwnParents = nucleusSpouseId
-      ? (byId.get(nucleusSpouseId)?.rels.parents ?? []).filter(pid => allIds.has(pid))
-      : [];
-    const spouseParentKey = [...nucleusSpouseOwnParents].sort().join("+");
-
-    // Units that share nucleus person's parents → left side
-    const leftUnits = nonNucleusUnits.filter(u =>
-      [...u.parentIds].sort().join("+") === nucleusParentKey
-    );
-    // Units that share spouse's parents → right side
-    const rightUnits = nonNucleusUnits.filter(u =>
-      [...u.parentIds].sort().join("+") === spouseParentKey
-    );
-    // Anything else → far right
-    const leftKeys  = new Set(leftUnits.map(u => u.ids[0]));
-    const rightKeys = new Set(rightUnits.map(u => u.ids[0]));
-    const otherUnits = nonNucleusUnits.filter(
-      u => !leftKeys.has(u.ids[0]) && !rightKeys.has(u.ids[0])
-    );
-
-    // Place left units RIGHT-TO-LEFT from nucleus
-    let lx = personCX.get(nucleusPersonId)! - CARD_W / 2 - H_GAP;
+    // Left units: place right-to-left from nucleus
+    let lx = cx.get(nId)! - CW / 2 - HGAP;
     for (let i = leftUnits.length - 1; i >= 0; i--) {
-      const ids = leftUnits[i].ids;
-      const w   = unitW(ids);
-      lx -= w;
-      if (ids.length === 2) {
-        personCX.set(ids[0], lx + CARD_W / 2);
-        personCX.set(ids[1], lx + CARD_W + COUPLE_GAP + CARD_W / 2);
-      } else {
-        personCX.set(ids[0], lx + CARD_W / 2);
-      }
-      lx -= H_GAP;
+      const { ids } = leftUnits[i];
+      lx -= coupleW(ids.length);
+      ids.length === 2
+        ? (cx.set(ids[0], lx + CW / 2), cx.set(ids[1], lx + CW + SPGAP + CW / 2))
+        : cx.set(ids[0], lx + CW / 2);
+      lx -= HGAP;
     }
 
-    // Place right units LEFT-TO-RIGHT from nucleus spouse
-    let rx = (nucleusSpouseId ? personCX.get(nucleusSpouseId)! : 0) + CARD_W / 2 + H_GAP;
-    for (const u of rightUnits) {
-      const ids = u.ids;
-      const w   = unitW(ids);
-      if (ids.length === 2) {
-        personCX.set(ids[0], rx + CARD_W / 2);
-        personCX.set(ids[1], rx + CARD_W + COUPLE_GAP + CARD_W / 2);
-      } else {
-        personCX.set(ids[0], rx + CARD_W / 2);
-      }
-      rx += w + H_GAP;
-    }
-
-    // Other units far right
-    if (otherUnits.length > 0) {
-      rx += CLUSTER_GAP - H_GAP;
-      for (const u of otherUnits) {
-        const ids = u.ids;
-        const w   = unitW(ids);
-        if (ids.length === 2) {
-          personCX.set(ids[0], rx + CARD_W / 2);
-          personCX.set(ids[1], rx + CARD_W + COUPLE_GAP + CARD_W / 2);
-        } else {
-          personCX.set(ids[0], rx + CARD_W / 2);
-        }
-        rx += w + H_GAP;
-      }
+    // Right units + others: left-to-right from nucleus spouse
+    let rx = (nsId ? cx.get(nsId)! : 0) + CW / 2 + HGAP;
+    for (const u of [...rightUnits, ...(otherUnits.length ? [null as null, ...otherUnits] : [])]) {
+      if (!u) { rx += CGAP - HGAP; continue; }
+      const { ids } = u;
+      ids.length === 2
+        ? (cx.set(ids[0], rx + CW / 2), cx.set(ids[1], rx + CW + SPGAP + CW / 2))
+        : cx.set(ids[0], rx + CW / 2);
+      rx += coupleW(ids.length) + HGAP;
     }
   }
 
-  // ── Place other generations ──────────────────────────────────────────────
-  for (const g of genNumbers) {
+  // ── Place all other generations ────────────────────────────────────────────
+  for (const g of gens) {
     if (g === nucleusGen) continue;
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-    const allUnits  = buildCoupleUnits(genPeople, byId, allIds);
-    const groups    = buildSiblingGroups(allUnits);
 
-    // Sort groups by their ideal center x (average of parent positions)
-    type GI = { group: SiblingGroup; idealCX: number; totalW: number };
-    const gis: GI[] = groups.map(group => {
-      const pxs = group.parentIds
-        .map(pid => personCX.get(pid))
-        .filter((x): x is number => x !== undefined);
-      const idealCX = pxs.length > 0 ? pxs.reduce((a, b) => a + b) / pxs.length : 0;
-      const totalW  = group.units.reduce(
-        (s, u, i) => s + unitW(u.ids) + (i > 0 ? H_GAP : 0), 0
-      );
-      return { group, idealCX, totalW };
-    });
-    gis.sort((a, b) => a.idealCX - b.idealCX);
+    const units  = buildCouples(people.filter(p => (p.data.generation ?? 0) === g), byId, allIds);
+    const groups = new Map<string, { parentIds: string[]; units: CoupleUnit[] }>();
 
-    // Spread to avoid overlap
-    for (let i = 1; i < gis.length; i++) {
-      const prev = gis[i - 1], cur = gis[i];
-      const min = prev.idealCX + prev.totalW / 2 + CLUSTER_GAP + cur.totalW / 2;
-      if (cur.idealCX < min) cur.idealCX = min;
-    }
-    for (let i = gis.length - 2; i >= 0; i--) {
-      const cur = gis[i], next = gis[i + 1];
-      const max = next.idealCX - next.totalW / 2 - CLUSTER_GAP - cur.totalW / 2;
-      if (cur.idealCX > max) cur.idealCX = max;
-    }
-
-    for (const { group, idealCX, totalW } of gis) {
-      let x = idealCX - totalW / 2;
-      for (const u of group.units) {
-        const ids = u.ids;
-        if (ids.length === 2) {
-          personCX.set(ids[0], x + CARD_W / 2);
-          personCX.set(ids[1], x + CARD_W + COUPLE_GAP + CARD_W / 2);
-          x += CARD_W * 2 + COUPLE_GAP + H_GAP;
-        } else {
-          personCX.set(ids[0], x + CARD_W / 2);
-          x += CARD_W + H_GAP;
-        }
-      }
-    }
-  }
-
-  // ── Gen 0: center each couple above their children ───────────────────────
-  for (const g of genNumbers) {
-    if (g >= nucleusGen) continue;
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-    const units     = buildCoupleUnits(genPeople, byId, allIds);
     for (const u of units) {
-      const cxs = u.children
-        .map(cid => personCX.get(cid))
-        .filter((x): x is number => x !== undefined);
-      const coupleCX = cxs.length > 0 ? cxs.reduce((a, b) => a + b) / cxs.length : 0;
-      if (u.ids.length === 2) {
-        personCX.set(u.ids[0], coupleCX - COUPLE_GAP / 2 - CARD_W / 2);
-        personCX.set(u.ids[1], coupleCX + COUPLE_GAP / 2 + CARD_W / 2);
-      } else {
-        personCX.set(u.ids[0], coupleCX);
+      const key = u.parentIds.length > 0
+        ? [...u.parentIds].sort().join("+")
+        : `root-${u.ids[0]}`;
+      if (!groups.has(key)) groups.set(key, { parentIds: u.parentIds, units: [] });
+      groups.get(key)!.units.push(u);
+    }
+
+    const sorted = [...groups.values()].map(g => {
+      const pxs    = g.parentIds.map(id => cx.get(id)).filter((x): x is number => x !== undefined);
+      const idealCX = pxs.length > 0 ? pxs.reduce((a, b) => a + b) / pxs.length : 0;
+      const totalW  = g.units.reduce((s, u, i) => s + coupleW(u.ids.length) + (i > 0 ? HGAP : 0), 0);
+      return { ...g, idealCX, totalW };
+    }).sort((a, b) => a.idealCX - b.idealCX);
+
+    // Push groups apart to avoid overlap
+    for (let i = 1; i < sorted.length; i++) {
+      const min = sorted[i-1].idealCX + sorted[i-1].totalW / 2 + CGAP + sorted[i].totalW / 2;
+      if (sorted[i].idealCX < min) sorted[i].idealCX = min;
+    }
+    for (let i = sorted.length - 2; i >= 0; i--) {
+      const max = sorted[i+1].idealCX - sorted[i+1].totalW / 2 - CGAP - sorted[i].totalW / 2;
+      if (sorted[i].idealCX > max) sorted[i].idealCX = max;
+    }
+
+    for (const { units: us, idealCX, totalW } of sorted) {
+      let x = idealCX - totalW / 2;
+      for (const u of us) {
+        const { ids } = u;
+        ids.length === 2
+          ? (cx.set(ids[0], x + CW / 2), cx.set(ids[1], x + CW + SPGAP + CW / 2))
+          : cx.set(ids[0], x + CW / 2);
+        x += coupleW(ids.length) + HGAP;
       }
     }
   }
 
-  // ── Absolute positions ───────────────────────────────────────────────────
-  const allCXs  = [...personCX.values()];
-  const minRelX = Math.min(...allCXs.map(cx => cx - CARD_W / 2));
-  const maxRelX = Math.max(...allCXs.map(cx => cx + CARD_W / 2));
-  const offsetX = -minRelX + PAD_X;
-  const totalW  = maxRelX - minRelX + PAD_X * 2;
-  const totalH  = genNumbers.length * ROW_H + CARD_H + PAD_Y * 2;
+  // ── Re-center ancestor generations above their children ───────────────────
+  for (const g of gens) {
+    if (g >= nucleusGen) continue;
+    for (const u of buildCouples(people.filter(p => (p.data.generation ?? 0) === g), byId, allIds)) {
+      const kids = [...new Set([
+        ...(byId.get(u.ids[0])?.rels.children ?? []),
+        ...(u.ids[1] ? byId.get(u.ids[1])?.rels.children ?? [] : []),
+      ])].filter(id => allIds.has(id));
+      const pxs = kids.map(id => cx.get(id)).filter((x): x is number => x !== undefined);
+      if (!pxs.length) continue;
+      const mid = pxs.reduce((a, b) => a + b) / pxs.length;
+      u.ids.length === 2
+        ? (cx.set(u.ids[0], mid - SPGAP / 2 - CW / 2), cx.set(u.ids[1], mid + SPGAP / 2 + CW / 2))
+        : cx.set(u.ids[0], mid);
+    }
+  }
 
-  const cardMap = new Map<string, PositionedCard>();
-  const cards: PositionedCard[] = [];
+  // ── Absolute positions ─────────────────────────────────────────────────────
+  const allCX  = [...cx.values()];
+  const minX   = Math.min(...allCX.map(x => x - CW / 2));
+  const maxX   = Math.max(...allCX.map(x => x + CW / 2));
+  const offset = -minX + PADX;
+
+  const cardMap = new Map<string, Card>();
+  const cards: Card[] = [];
   for (const p of people) {
-    const cx     = (personCX.get(p.id) ?? 0) + offsetX;
-    const genIdx = genNumbers.indexOf(p.data.generation ?? 0);
-    const y      = PAD_Y + genIdx * ROW_H;
-    const card: PositionedCard = { id: p.id, person: p, x: cx - CARD_W / 2, y, cx };
+    const absCX  = (cx.get(p.id) ?? 0) + offset;
+    const genIdx = gens.indexOf(p.data.generation ?? 0);
+    const y      = PADY + genIdx * ROWH;
+    const card: Card = { id: p.id, person: p, x: absCX - CW / 2, y, cx: absCX };
     cards.push(card);
     cardMap.set(p.id, card);
   }
 
-  // ── Sibling boxes + connectors ───────────────────────────────────────────
-  // Box rule: for each sibling group, draw a dashed box around all cards,
-  // then draw ONE elbow line from the parent couple midpoint to the box top center.
-  //
-  // Special nucleus case: we draw TWO boxes for the nucleus gen:
-  //   Box A = nucleus person's parent group (left side + nucleus at right edge)
-  //   Box B = nucleus spouse's parent group (spouse at left edge + right side)
-  const boxes: SiblingBox[]     = [];
+  // ── Boxes + connectors ─────────────────────────────────────────────────────
+  const boxes: Box[]            = [];
   const connectors: Connector[] = [];
 
   function makeBox(memberIds: string[], parentIds: string[]) {
-    const mCards = memberIds
-      .map(id => cardMap.get(id))
-      .filter((c): c is PositionedCard => !!c);
-    if (mCards.length === 0) return;
+    const mc = memberIds.map(id => cardMap.get(id)).filter(Boolean) as Card[];
+    if (!mc.length) return;
 
-    const minX = Math.min(...mCards.map(c => c.x))           - BOX_PAD;
-    const maxX = Math.max(...mCards.map(c => c.x + CARD_W))  + BOX_PAD;
-    const topY = mCards[0].y                                  - BOX_PAD;
-    boxes.push({ x: minX, y: topY, w: maxX - minX, h: CARD_H + BOX_PAD * 2 });
+    const minBX = Math.min(...mc.map(c => c.x))       - BOXPAD;
+    const maxBX = Math.max(...mc.map(c => c.x + CW))  + BOXPAD;
+    const topY  = mc[0].y                              - BOXPAD;
+    boxes.push({ x: minBX, y: topY, w: maxBX - minBX, h: CH + BOXPAD * 2, memberIds, parentIds });
 
-    if (parentIds.length === 0) return;
-    const pCards = parentIds
-      .map(id => cardMap.get(id))
-      .filter((c): c is PositionedCard => !!c);
-    if (pCards.length === 0) return;
+    if (!parentIds.length) return;
+    const pc = parentIds.map(id => cardMap.get(id)).filter(Boolean) as Card[];
+    if (!pc.length) return;
 
-    const fromX = pCards.reduce((s, c) => s + c.cx, 0) / pCards.length;
-    const fromY = pCards[0].y + CARD_H;
-    const toX   = (minX + maxX) / 2;
-    const toY   = topY;
-    connectors.push({ fromX, fromY, toX, toY });
+    connectors.push({
+      fromX: pc.reduce((s, c) => s + c.cx, 0) / pc.length,
+      fromY: pc.reduce((s, c) => s + c.y + CH, 0) / pc.length,
+      toX:   (minBX + maxBX) / 2,
+      toY:   topY,
+      parentIds,
+      memberIds,
+    });
   }
 
-  // Nucleus gen boxes
+  // Nucleus gen: box A (left siblings + nucleus), box B (spouse + right siblings)
   {
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === nucleusGen);
-    const allUnits  = buildCoupleUnits(genPeople, byId, allIds);
+    const units      = buildCouples(people.filter(p => (p.data.generation ?? 0) === nucleusGen), byId, allIds);
+    const nKey       = nucleusUnit ? [...nucleusUnit.ownParentIds].sort().join("+") : "";
+    const nsKey      = [...nsOwnParents].sort().join("+");
+    const leftUnits  = units.filter(u => !u.isNucleus && [...u.parentIds].sort().join("+") === nKey);
+    const rightUnits = units.filter(u => !u.isNucleus && [...u.parentIds].sort().join("+") === nsKey);
+    const lKeys      = new Set(leftUnits.flatMap(u => u.ids));
+    const rKeys      = new Set(rightUnits.flatMap(u => u.ids));
 
-    const nucleusParentKey = nucleusUnit
-      ? [...nucleusUnit.ownParentIds].sort().join("+")
-      : "";
-    const nucleusSpouseOwnParents = nucleusSpouseId
-      ? (byId.get(nucleusSpouseId)?.rels.parents ?? []).filter(pid => allIds.has(pid))
-      : [];
-    const spouseParentKey = [...nucleusSpouseOwnParents].sort().join("+");
+    makeBox([...leftUnits.flatMap(u => u.ids), nId], nucleusUnit?.ownParentIds ?? []);
+    if (nsId) makeBox([nsId, ...rightUnits.flatMap(u => u.ids)], nsOwnParents);
 
-    // Box A: left units + nucleus person
-    const leftUnits = allUnits.filter(u =>
-      !u.isNucleus && [...u.parentIds].sort().join("+") === nucleusParentKey
+    const others = units.filter(u =>
+      !u.isNucleus && !u.ids.some(id => lKeys.has(id) || rKeys.has(id)) &&
+      !u.ids.includes(nId) && !u.ids.includes(nsId ?? "")
     );
-    const boxAIds = [
-      ...leftUnits.flatMap(u => u.ids),
-      nucleusPersonId,
-    ];
-    makeBox(boxAIds, nucleusUnit?.ownParentIds ?? []);
-
-    // Box B: nucleus spouse + right units
-    if (nucleusSpouseId) {
-      const rightUnits = allUnits.filter(u =>
-        !u.isNucleus && [...u.parentIds].sort().join("+") === spouseParentKey
-      );
-      const boxBIds = [
-        nucleusSpouseId,
-        ...rightUnits.flatMap(u => u.ids),
-      ];
-      makeBox(boxBIds, nucleusSpouseOwnParents);
-    }
-
-    // Any other units in nucleus gen (rare edge case)
-    const leftKeys  = new Set(leftUnits.flatMap(u => u.ids));
-    const rightUnitsAll = allUnits.filter(u =>
-      !u.isNucleus && [...u.parentIds].sort().join("+") === spouseParentKey
-    );
-    const rightKeys = new Set(rightUnitsAll.flatMap(u => u.ids));
-    const otherUnits = allUnits.filter(u =>
-      !u.isNucleus &&
-      !u.ids.some(id => leftKeys.has(id) || rightKeys.has(id)) &&
-      u.ids[0] !== nucleusPersonId &&
-      u.ids[0] !== nucleusSpouseId
-    );
-    for (const u of otherUnits) makeBox(u.ids, u.parentIds);
+    for (const u of others) makeBox(u.ids, u.parentIds);
   }
 
-  // Other gen boxes
-  for (const g of genNumbers) {
+  // All other generations
+  for (const g of gens) {
     if (g === nucleusGen) continue;
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-    const allUnits  = buildCoupleUnits(genPeople, byId, allIds);
-    const groups    = buildSiblingGroups(allUnits);
-    for (const group of groups) {
-      const memberIds = group.units.flatMap(u => u.ids);
-      makeBox(memberIds, group.parentIds);
+    const units  = buildCouples(people.filter(p => (p.data.generation ?? 0) === g), byId, allIds);
+    const groups = new Map<string, { parentIds: string[]; ids: string[] }>();
+    for (const u of units) {
+      const key = u.parentIds.length > 0 ? [...u.parentIds].sort().join("+") : `root-${u.ids[0]}`;
+      if (!groups.has(key)) groups.set(key, { parentIds: u.parentIds, ids: [] });
+      groups.get(key)!.ids.push(...u.ids);
+    }
+    for (const { parentIds, ids } of groups.values()) makeBox(ids, parentIds);
+  }
+
+  // ── Spouse lines ───────────────────────────────────────────────────────────
+  const spouseLines: SpouseLine[] = [];
+  const seen = new Set<string>();
+  for (const card of cards) {
+    for (const sid of card.person.rels.spouses ?? []) {
+      if (!allIds.has(sid)) continue;
+      const key = [card.id, sid].sort().join(":");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const sc = cardMap.get(sid);
+      if (!sc) continue;
+      spouseLines.push({
+        x1: card.cx, y1: card.y + CH / 2,
+        x2: sc.cx,   y2: sc.y  + CH / 2,
+        ids: [card.id, sid],
+      });
     }
   }
 
-  // Gen 0 boxes (no connectors — they're roots)
-  for (const g of genNumbers) {
-    if (g >= nucleusGen) continue;
-    const genPeople = people.filter(p => (p.data.generation ?? 0) === g);
-    const units = buildCoupleUnits(genPeople, byId, allIds);
-    for (const u of units) makeBox(u.ids, []);
-  }
-
-  // ── Couple dots ──────────────────────────────────────────────────────────
-  const dots: CoupleDot[] = [];
-  for (const card of cards) {
-    const sid = (card.person.rels.spouses ?? [])[0];
-    if (!sid || sid < card.id || !allIds.has(sid)) continue;
-    const sc = cardMap.get(sid);
-    if (!sc) continue;
-    dots.push({ cx: (card.cx + sc.cx) / 2, cy: card.y + CARD_H / 2 });
-  }
-
-  return { cards, boxes, connectors, dots, width: totalW, height: totalH };
+  return {
+    cards, boxes, connectors, spouseLines,
+    width:  maxX - minX + PADX * 2,
+    height: gens.length * ROWH + CH + PADY * 2,
+  };
 }
 
-// ─── SVG Card ─────────────────────────────────────────────────────────────────
-function SvgCard({ card, onClick }: { card: PositionedCard; onClick: () => void }) {
-  const p = card.person;
-  const name = getName(p);
-  const year = getYear(p);
-  const gender = (p.data.gender ?? "").toUpperCase();
-  const isMale   = gender === "M";
-  const isFemale = gender === "F";
-  const borderColor = isMale
-    ? "var(--theme-chart-male,#81d4fa)"
-    : isFemale
-    ? "var(--theme-chart-female,#f48fb1)"
-    : "rgba(128,128,128,.3)";
-  const fillColor = isMale
-    ? "rgba(255, 255, 255, 0.3)"
-    : isFemale
-    ? "rgba(255, 255, 255, 0.3)"
-    : "rgba(128,128,128,.05)";
+// ─── Hover spotlight ──────────────────────────────────────────────────────────
 
-  const words = name.split(" ");
-  const nameLines: string[] = [];
-  let cur = "";
-  for (const w of words) {
-    const test = cur ? `${cur} ${w}` : w;
-    if (test.length > 13 && cur) { nameLines.push(cur); cur = w; }
-    else cur = test;
+function getConnectedIds(hoveredId: string, people: Person[]): Set<string> {
+  const byId = new Map(people.map(p => [p.id, p]));
+  const p    = byId.get(hoveredId);
+  if (!p) return new Set();
+
+  const ids = new Set<string>([hoveredId]);
+  for (const id of p.rels.spouses ?? []) ids.add(id);
+  for (const pid of p.rels.parents ?? []) {
+    ids.add(pid);
+    for (const ps of byId.get(pid)?.rels.spouses ?? []) ids.add(ps);
+    for (const sib of byId.get(pid)?.rels.children ?? []) ids.add(sib);
   }
-  if (cur) nameLines.push(cur);
-  const displayLines = nameLines.slice(0, 2);
+  for (const id of p.rels.children ?? []) ids.add(id);
+  return ids;
+}
+
+// ─── Card component ───────────────────────────────────────────────────────────
+
+function SvgCard({ card, dimmed, highlighted, onClick, onHover, onHoverEnd }: {
+  card: Card;
+  dimmed: boolean;
+  highlighted: boolean;
+  onClick: () => void;
+  onHover: () => void;
+  onHoverEnd: () => void;
+}) {
+  const p      = card.person;
+  const name   = getName(p);
+  const year   = getYear(p);
+  const gender = (p.data.gender ?? "").toUpperCase();
+  const isMale = gender === "M";
+  const isFem  = gender === "F";
+
+  const stroke = isMale ? "var(--theme-chart-male,#81d4fa)"
+    : isFem ? "var(--theme-chart-female,#f48fb1)"
+    : "rgba(128,128,128,.3)";
+
+  const fill = highlighted
+    ? (isMale ? "rgba(130,180,255,0.18)" : isFem ? "rgba(255,150,180,0.18)" : "rgba(255,255,255,0.1)")
+    : "rgba(255,255,255,0.04)";
+
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of name.split(" ")) {
+    const test = cur ? `${cur} ${w}` : w;
+    if (test.length > 13 && cur) { lines.push(cur); cur = w; } else cur = test;
+  }
+  if (cur) lines.push(cur);
+  const display = lines.slice(0, 2);
 
   return (
     <g
       transform={`translate(${card.x},${card.y})`}
       onClick={e => { e.stopPropagation(); onClick(); }}
-      style={{ cursor: "pointer" }}
+      onMouseEnter={onHover}
+      onMouseLeave={onHoverEnd}
+      style={{ cursor: "pointer", opacity: dimmed ? 0.1 : 1, transition: "opacity 0.2s",
+               filter: highlighted ? "drop-shadow(0 0 6px currentColor)" : "none" }}
     >
-      <rect width={CARD_W} height={CARD_H} rx={10} fill={fillColor} stroke={borderColor} strokeWidth={2} />
-      <circle cx={CARD_W / 2} cy={30} r={16} fill="rgba(128,128,128,.1)" />
-      <g transform={`translate(${CARD_W / 2 - 8},17)`} fill="rgba(128,128,128,.35)">
+      <rect width={CW} height={CH} rx={10} fill={fill}
+        stroke={stroke} strokeWidth={highlighted ? 2.5 : 1.5} />
+      <circle cx={CW/2} cy={30} r={16} fill="rgba(128,128,128,.1)" />
+      <g transform={`translate(${CW/2-8},17)`} fill="rgba(128,128,128,.35)">
         <circle cx={8} cy={5.5} r={4.5} />
         <path d="M0 20 Q0 13 8 13 Q16 13 16 20 Z" />
       </g>
       {p.data.avatar && (
         <>
-          <defs>
-            <clipPath id={`clip-${card.id}`}>
-              <circle cx={CARD_W / 2} cy={30} r={16} />
-            </clipPath>
-          </defs>
-          <image href={p.data.avatar} x={CARD_W / 2 - 16} y={14} width={32} height={32}
-            clipPath={`url(#clip-${card.id})`} preserveAspectRatio="xMidYMid slice" />
+          <defs><clipPath id={`av-${card.id}`}><circle cx={CW/2} cy={30} r={16}/></clipPath></defs>
+          <image href={p.data.avatar} x={CW/2-16} y={14} width={32} height={32}
+            clipPath={`url(#av-${card.id})`} preserveAspectRatio="xMidYMid slice"/>
         </>
       )}
-      {displayLines.map((line, i) => (
-        <text key={i} x={CARD_W / 2} y={56 + i * 13}
-          textAnchor="middle" fontSize={9} fontWeight={600}
+      {display.map((line, i) => (
+        <text key={i} x={CW/2} y={56+i*13} textAnchor="middle"
+          fontSize={9} fontWeight={highlighted ? 700 : 600}
           fill="var(--theme-chart-text,#e2e8f0)" fontFamily="system-ui,sans-serif"
         >{line}</text>
       ))}
       {year && (
-        <text x={CARD_W / 2} y={56 + displayLines.length * 13 + 5}
-          textAnchor="middle" fontSize={8} opacity={0.4}
+        <text x={CW/2} y={56+display.length*13+5} textAnchor="middle"
+          fontSize={8} opacity={0.4}
           fill="var(--theme-chart-text,#e2e8f0)" fontFamily="system-ui,sans-serif"
         >{year}</text>
       )}
-      <rect width={CARD_W} height={CARD_H} rx={10} fill="transparent" />
+      <rect width={CW} height={CH} rx={10} fill="transparent" />
     </g>
   );
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-const DATA_URL = "/api/family";
 
 export default function OverviewTree({ onSelectPerson, onClose }: OverviewTreeProps) {
-  const [people, setPeople]   = useState<PersonData[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [people, setPeople]       = useState<Person[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [tf, setTf]               = useState({ x: 0, y: 0, scale: 1 });
+  const isPanning                 = useRef(false);
+  const panStart                  = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
 
   useEffect(() => {
-    fetch(DATA_URL)
+    fetch("/api/family")
       .then(r => r.json())
       .then(d => { setPeople(Array.isArray(d) ? d : []); setLoading(false); })
       .catch(() => setLoading(false));
@@ -570,84 +472,153 @@ export default function OverviewTree({ onSelectPerson, onClose }: OverviewTreePr
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
-  const layout     = people.length > 0 ? buildLayout(people) : null;
-  const genNumbers = [...new Set(people.map(p => p.data.generation ?? 0))].sort((a, b) => a - b);
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    setTf(t => ({ ...t, scale: Math.min(Math.max(t.scale * (e.deltaY > 0 ? 0.9 : 1.1), 0.15), 4) }));
+  }, []);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    isPanning.current = true;
+    panStart.current  = { x: e.clientX, y: e.clientY, tx: tf.x, ty: tf.y };
+  }, [tf]);
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPanning.current) return;
+    setTf(t => ({ ...t,
+      x: panStart.current.tx + (e.clientX - panStart.current.x),
+      y: panStart.current.ty + (e.clientY - panStart.current.y),
+    }));
+  }, []);
+
+  const stopPan = useCallback(() => { isPanning.current = false; }, []);
+
+  const layout = people.length > 0 ? buildLayout(people) : null;
+  const gens   = [...new Set(people.map(p => p.data.generation ?? 0))].sort((a, b) => a - b);
+  const lit    = hoveredId ? getConnectedIds(hoveredId, people) : null;
+
+  const cDim = (parentIds: string[], memberIds: string[]) =>
+    !!lit && !parentIds.some(id => lit.has(id)) && !memberIds.some(id => lit.has(id));
+  const cLit = (parentIds: string[], memberIds: string[]) =>
+    !!lit && (parentIds.some(id => lit.has(id)) || memberIds.some(id => lit.has(id)));
+  const sDim = (ids: [string, string]) => !!lit && !ids.some(id => lit.has(id));
+  const sLit = (ids: [string, string]) => !!lit && ids.every(id => lit.has(id));
 
   return (
     <>
       <style>{`
-        .ov-wrap { position:fixed;inset:0;z-index:50;background:var(--theme-chart-bg,#1a1a2e);display:flex;flex-direction:column;animation:ovIn .22s ease; }
-        @keyframes ovIn { from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)} }
-        .ov-header { position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--theme-chart-bg,#1a1a2e);border-bottom:1px solid rgba(128,128,128,.15);flex-shrink:0; }
-        .ov-title  { font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--theme-chart-text,#e2e8f0);opacity:.5; }
-        .ov-hint   { font-size:12px;color:var(--theme-chart-text,#e2e8f0);opacity:.3; }
-        .ov-close  { background:rgba(128,128,128,.12);border:1px solid rgba(128,128,128,.2);color:var(--theme-chart-text,#e2e8f0);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .15s; }
-        .ov-close:hover { background:rgba(128,128,128,.22); }
-        .ov-scroll  { flex:1;overflow:auto;padding:24px;display:flex;align-items:flex-start;justify-content:center; }
-        .ov-loading { display:flex;align-items:center;justify-content:center;flex:1;color:var(--theme-chart-text,#e2e8f0);opacity:.4;font-size:14px; }
-        .ov-card-g:hover { opacity:.8; }
+        .ov{position:fixed;inset:0;z-index:50;background:var(--theme-chart-bg,#111);display:flex;flex-direction:column;animation:ovIn .2s ease}
+        @keyframes ovIn{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
+        .ov-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid rgba(128,128,128,.12);flex-shrink:0;gap:16px}
+        .ov-title{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--theme-chart-text,#e2e8f0);opacity:.4}
+        .ov-hint{font-size:11px;color:var(--theme-chart-text,#e2e8f0);opacity:.25;white-space:nowrap}
+        .ov-btns{display:flex;align-items:center;gap:6px}
+        .ov-btn{background:rgba(128,128,128,.1);border:1px solid rgba(128,128,128,.18);color:var(--theme-chart-text,#e2e8f0);border-radius:6px;height:28px;min-width:28px;padding:0 8px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;gap:5px}
+        .ov-btn:hover{background:rgba(128,128,128,.22)}
+        .ov-pct{font-size:10px;color:var(--theme-chart-text,#e2e8f0);opacity:.35;min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
+        .ov-canvas{flex:1;overflow:hidden;position:relative;cursor:grab}
+        .ov-canvas:active{cursor:grabbing}
+        .ov-inner{position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center}
+        .ov-loading{display:flex;align-items:center;justify-content:center;flex:1;color:var(--theme-chart-text,#e2e8f0);opacity:.4;font-size:14px}
       `}</style>
 
-      <div className="ov-wrap" onClick={onClose}>
-        <div className="ov-header" onClick={e => e.stopPropagation()}>
+      <div className="ov" onClick={onClose}>
+        <div className="ov-bar" onClick={e => e.stopPropagation()}>
           <span className="ov-title">Family Overview</span>
-          <span className="ov-hint">Click a person to focus · Esc or click background to exit</span>
-          <button className="ov-close" onClick={onClose}>
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-              <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            Close
-          </button>
+          <span className="ov-hint">Hover to spotlight · Click to focus · Scroll to zoom · Drag to pan</span>
+          <div className="ov-btns">
+            <button className="ov-btn" onClick={() => setTf(t => ({ ...t, scale: Math.max(t.scale * 0.8, 0.15) }))}>−</button>
+            <span className="ov-pct">{Math.round(tf.scale * 100)}%</span>
+            <button className="ov-btn" onClick={() => setTf(t => ({ ...t, scale: Math.min(t.scale * 1.25, 4) }))}>+</button>
+            <button className="ov-btn" style={{ fontSize: 10 }} onClick={() => setTf({ x: 0, y: 0, scale: 1 })}>Reset</button>
+            <button className="ov-btn" onClick={onClose}>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                <path d="M1 1l10 10M11 1L1 11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+              Close
+            </button>
+          </div>
         </div>
 
         {loading ? (
           <div className="ov-loading">Loading…</div>
         ) : layout ? (
-          <div className="ov-scroll" onClick={e => e.stopPropagation()}>
-            <svg
-              width={layout.width} height={layout.height}
-              viewBox={`0 0 ${layout.width} ${layout.height}`}
-              style={{ overflow: "visible", display: "block" }}
-            >
-              {genNumbers.map((g, i) => (
-                <text key={g} x={8} y={PAD_Y + i * ROW_H + CARD_H / 2}
-                  fontSize={9} fontWeight={700} letterSpacing={2}
-                  fill="var(--theme-chart-text,#e2e8f0)" opacity={0.2}
-                  fontFamily="system-ui,sans-serif"
-                >GEN {g}</text>
-              ))}
+          <div className="ov-canvas"
+            onWheel={onWheel} onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove} onMouseUp={stopPan} onMouseLeave={stopPan}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="ov-inner" style={{
+              transform: `translate(${tf.x}px,${tf.y}px) scale(${tf.scale})`,
+              transformOrigin: "center top",
+              transition: isPanning.current ? "none" : "transform 0.04s ease",
+            }}>
+              <svg width={layout.width} height={layout.height}
+                viewBox={`0 0 ${layout.width} ${layout.height}`}
+                style={{ overflow: "visible", display: "block", userSelect: "none" }}
+              >
+                {/* Generation labels */}
+                {gens.map((g, i) => (
+                  <text key={g} x={8} y={PADY + i * ROWH + CH / 2}
+                    fontSize={9} fontWeight={700} letterSpacing={2}
+                    fill="var(--theme-chart-text,#e2e8f0)" opacity={lit ? 0.06 : 0.18}
+                    fontFamily="system-ui,sans-serif" style={{ transition: "opacity 0.2s" }}
+                  >GEN {g}</text>
+                ))}
 
-              {layout.boxes.map((b, i) => (
-                <rect key={`box-${i}`}
-                  x={b.x} y={b.y} width={b.w} height={b.h} rx={BOX_R}
-                  fill="none" stroke="rgba(128,128,128,.2)"
-                  strokeWidth={1.5} strokeDasharray="5 3"
-                />
-              ))}
-
-              {layout.connectors.map((c, i) => {
-                const midY = c.fromY + (c.toY - c.fromY) / 2;
-                return (
-                  <path key={`conn-${i}`}
-                    d={`M${c.fromX},${c.fromY} L${c.fromX},${midY} L${c.toX},${midY} L${c.toX},${c.toY}`}
-                    fill="none"
-                    stroke="var(--theme-chart-link,rgba(180,180,200,.3))"
-                    strokeWidth={1.5} strokeLinecap="round"
+                {/* Sibling group boxes */}
+                {layout.boxes.map((b, i) => (
+                  <rect key={`b${i}`} x={b.x} y={b.y} width={b.w} height={b.h} rx={10}
+                    fill="none" stroke="rgba(128,128,128,.18)" strokeWidth={1.5} strokeDasharray="5 3"
+                    opacity={lit && !b.memberIds.some(id => lit.has(id)) && !b.parentIds.some(id => lit.has(id)) ? 0.06 : 1}
+                    style={{ transition: "opacity 0.2s" }}
                   />
-                );
-              })}
+                ))}
 
-              {layout.dots.map((d, i) => (
-                <circle key={`dot-${i}`} cx={d.cx} cy={d.cy} r={4}
-                  fill="var(--theme-chart-link,rgba(180,180,200,.5))" />
-              ))}
+                {/* Parent–child connectors */}
+                {layout.connectors.map((c, i) => (
+                  <line key={`c${i}`} x1={c.fromX} y1={c.fromY} x2={c.toX} y2={c.toY}
+                    stroke={cLit(c.parentIds, c.memberIds) ? "rgba(220,220,240,.85)" : "rgba(180,180,200,.28)"}
+                    strokeWidth={cLit(c.parentIds, c.memberIds) ? 2 : 1.5} strokeLinecap="round"
+                    opacity={cDim(c.parentIds, c.memberIds) ? 0.04 : 1}
+                    style={{ transition: "opacity 0.2s, stroke 0.2s" }}
+                  />
+                ))}
 
-              {layout.cards.map(card => (
-                <g key={card.id} className="ov-card-g">
-                  <SvgCard card={card} onClick={() => { onSelectPerson(card.id); onClose(); }} />
-                </g>
-              ))}
-            </svg>
+                {/* Spouse lines */}
+                {layout.spouseLines.map((sl, i) => (
+                  <line key={`s${i}`} x1={sl.x1} y1={sl.y1} x2={sl.x2} y2={sl.y2}
+                    stroke={sLit(sl.ids) ? "rgba(220,220,240,.85)" : "rgba(180,180,200,.35)"}
+                    strokeWidth={sLit(sl.ids) ? 2 : 1.5}
+                    strokeDasharray={sLit(sl.ids) ? "none" : "4 3"}
+                    opacity={sDim(sl.ids) ? 0.04 : 1}
+                    style={{ transition: "opacity 0.2s, stroke 0.2s" }}
+                  />
+                ))}
+
+                {/* Couple midpoint dots */}
+                {layout.spouseLines.map((sl, i) => (
+                  <circle key={`d${i}`}
+                    cx={(sl.x1+sl.x2)/2} cy={(sl.y1+sl.y2)/2}
+                    r={sLit(sl.ids) ? 5 : 3.5}
+                    fill={sLit(sl.ids) ? "rgba(220,220,240,.9)" : "rgba(180,180,200,.5)"}
+                    opacity={sDim(sl.ids) ? 0.04 : 1}
+                    style={{ transition: "opacity 0.2s" }}
+                  />
+                ))}
+
+                {/* Person cards */}
+                {layout.cards.map(card => (
+                  <SvgCard key={card.id} card={card}
+                    dimmed={!!lit && !lit.has(card.id)}
+                    highlighted={!!lit && lit.has(card.id)}
+                    onClick={() => { onSelectPerson(card.id); onClose(); }}
+                    onHover={() => setHoveredId(card.id)}
+                    onHoverEnd={() => setHoveredId(null)}
+                  />
+                ))}
+              </svg>
+            </div>
           </div>
         ) : null}
       </div>
