@@ -259,7 +259,7 @@ export default function FamilyTree() {
           });
         }
 
-        // Clarify what the cancel button does
+        // Remove the cancel button from the form
         const buttons = Array.from(
           cont.querySelectorAll<HTMLButtonElement>("button")
         );
@@ -267,18 +267,7 @@ export default function FamilyTree() {
           (btn) => btn.textContent?.trim().toLowerCase() === "cancel"
         );
         if (cancelBtn) {
-          cancelBtn.title = "Cancel closes this form and discards any unsaved changes.";
-
-          const note = document.createElement("div");
-          note.textContent = "Cancel will close this form and ignore any changes you made.";
-          note.style.fontSize = "11px";
-          note.style.opacity = "0.7";
-          note.style.marginTop = "4px";
-
-          const parent = cancelBtn.parentElement;
-          if (parent) {
-            parent.appendChild(note);
-          }
+          cancelBtn.remove();
         }
 
         const avatarInput = cont.querySelector<HTMLInputElement>('input[name="avatar"]');
@@ -302,14 +291,22 @@ export default function FamilyTree() {
         fileInput.className = "f3-avatar-file-input";
         fileInput.setAttribute("aria-label", "Upload avatar image");
 
-        const fileLabel = document.createElement("span");
-        fileLabel.className = "f3-avatar-file-label";
-        fileLabel.textContent = "Choose File";
+        const uploadButton = document.createElement("button");
+        uploadButton.type = "button";
+        uploadButton.className = "f3-avatar-upload-btn";
+        uploadButton.textContent = "Upload Image";
 
         const fileWrap = document.createElement("div");
         fileWrap.className = "f3-avatar-file-wrap";
         fileWrap.appendChild(fileInput);
-        fileWrap.appendChild(fileLabel);
+        fileWrap.appendChild(uploadButton);
+
+        // Webcam capture button
+        const camButton = document.createElement("button");
+        camButton.type = "button";
+        camButton.textContent = "Use Camera";
+        camButton.className = "f3-avatar-camera-btn";
+        fileWrap.appendChild(camButton);
 
         const preview = document.createElement("img");
         preview.className = "f3-avatar-preview";
@@ -343,6 +340,96 @@ export default function FamilyTree() {
             });
           };
           reader.readAsDataURL(file);
+        });
+
+        uploadButton.addEventListener("click", () => {
+          fileInput.click();
+        });
+
+        camButton.addEventListener("click", async () => {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+            const video = document.createElement("video");
+            video.autoplay = true;
+            video.srcObject = stream;
+            video.style.transform = "scaleX(-1)";
+
+            const snapOverlay = document.createElement("div");
+            snapOverlay.className = "f3-crop-overlay";
+            snapOverlay.style.backgroundColor = "rgba(0,0,0,0.75)";
+            snapOverlay.innerHTML = "";
+
+            const inner = document.createElement("div");
+            inner.className = "f3-crop-modal";
+            inner.style.maxWidth = "520px";
+            inner.style.display = "flex";
+            inner.style.flexDirection = "column";
+
+            const header = document.createElement("div");
+            header.className = "f3-crop-header";
+            const title = document.createElement("span");
+            title.className = "f3-crop-title";
+            title.textContent = "Take a photo";
+            header.appendChild(title);
+
+            const actions = document.createElement("div");
+            actions.className = "f3-crop-actions";
+            const cancel = document.createElement("button");
+            cancel.type = "button";
+            cancel.textContent = "Cancel";
+            const snap = document.createElement("button");
+            snap.type = "button";
+            snap.textContent = "Capture";
+            actions.appendChild(cancel);
+            actions.appendChild(snap);
+            header.appendChild(actions);
+
+            const body = document.createElement("div");
+            body.className = "f3-crop-body";
+            body.appendChild(video);
+
+            inner.appendChild(header);
+            inner.appendChild(body);
+            snapOverlay.appendChild(inner);
+            document.body.appendChild(snapOverlay);
+
+            const stopStream = () => {
+              stream.getTracks().forEach(t => t.stop());
+            };
+
+            const closeSnap = () => {
+              stopStream();
+              snapOverlay.remove();
+            };
+
+            cancel.addEventListener("click", closeSnap);
+            snapOverlay.addEventListener("click", (e) => {
+              if (e.target === snapOverlay) closeSnap();
+            });
+
+            snap.addEventListener("click", () => {
+              const canvas = document.createElement("canvas");
+              canvas.width = video.videoWidth || 640;
+              canvas.height = video.videoHeight || 480;
+              const ctx = canvas.getContext("2d");
+              if (!ctx) return;
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+              closeSnap();
+
+              openCropModal(dataUrl, (croppedDataUrl) => {
+                if (croppedDataUrl) {
+                  avatarInput.value = croppedDataUrl;
+                  preview.src = croppedDataUrl;
+                  preview.style.display = "block";
+                }
+              });
+            });
+          } catch (err) {
+            console.error("Unable to access camera", err);
+            alert("Unable to access camera. Please check permissions and try again.");
+          }
         });
       });
 
