@@ -6,6 +6,61 @@ const DB_PATH = path.join(process.cwd(), "family-tree.db");
 
 let db: Database.Database | null = null;
 
+function normaliseBirthday(raw: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+
+  // If already ISO-like (YYYY-MM-DD), keep as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  // Handle common numeric formats: DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = /^(\d{2})[\/-](\d{2})[\/-](\d{4})$/.exec(value);
+  if (dmyMatch) {
+    const [, dd, mm, yyyy] = dmyMatch;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // Handle year-only
+  if (/^\d{4}$/.test(value)) {
+    return `${value}-01-01`;
+  }
+
+  // Fallback: rely on JS Date parsing for things like "08 June 1972"
+  const dt = new Date(value);
+  if (!isNaN(dt.getTime())) {
+    return dt.toISOString().slice(0, 10);
+  }
+
+  // If we can't parse, leave as empty string to avoid bad data
+  return "";
+}
+
+function migrateBirthdayFormat(database: Database.Database): void {
+  try {
+    const rows = database
+      .prepare("SELECT id, birthday FROM people")
+      .all() as Array<{ id: number; birthday: string }>;
+
+    const update = database.prepare(
+      "UPDATE people SET birthday = ? WHERE id = ?"
+    );
+
+    const transaction = database.transaction(() => {
+      for (const row of rows) {
+        const normalised = normaliseBirthday(row.birthday);
+        if (normalised !== row.birthday) {
+          update.run(normalised, row.id);
+        }
+      }
+    });
+
+    transaction();
+  } catch {
+    // If the table doesn't exist yet or another error occurs, ignore;
+    // the initial seed will already use the current format.
+  }
+}
+
 function getDb(): Database.Database {
   if (db) return db;
   db = new Database(DB_PATH);
@@ -30,6 +85,9 @@ function getDb(): Database.Database {
   if (!cols.some(c => c.name === "generation")) {
     db.exec("ALTER TABLE people ADD COLUMN generation INTEGER NOT NULL DEFAULT 0");
   }
+
+  // Migrate: normalise birthday strings into a consistent YYYY-MM-DD format
+  migrateBirthdayFormat(db);
 
   const { n } = db.prepare("SELECT COUNT(*) as n FROM people").get() as { n: number };
   if (n === 0) {

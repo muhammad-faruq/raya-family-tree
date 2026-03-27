@@ -8,6 +8,22 @@ import "cropperjs/dist/cropper.css";
 import "./chart-theme.css";
 import OverviewTree from "./OverviewTree";
 
+function formatBirthdayForDisplay(raw: unknown): string {
+  if (!raw) return "";
+  const value = String(raw).trim();
+  if (!value) return "";
+
+  // Try to parse as Date; works well for ISO (YYYY-MM-DD) and many other formats
+  const dt = new Date(value);
+  if (isNaN(dt.getTime())) return value;
+
+  return dt.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 const DATA_URL = "/api/family";
 
 /** Opens a modal to crop an image to a square; calls onDone with the cropped data URL or null if cancelled. */
@@ -106,7 +122,17 @@ export default function FamilyTree() {
     if (!cont.current) return;
     fetch(DATA_URL)
       .then((res) => res.json())
-      .then((data: f3.Data) => create(data))
+      .then((data: f3.Data) => {
+        // Add formatted birthday for display on cards
+        if (Array.isArray(data)) {
+          for (const item of data as any[]) {
+            const d = item?.data ?? {};
+            d.birthdayDisplay = formatBirthdayForDisplay(d.birthday);
+            item.data = d;
+          }
+        }
+        create(data);
+      })
       .catch((err) => console.error(err));
 
     function create(data: f3.Data) {
@@ -121,7 +147,7 @@ export default function FamilyTree() {
 
       const f3Card = f3Chart
         .setCardHtml()
-        .setCardDisplay([["first name", "last name"], ["birthday"]])
+        .setCardDisplay([["first name"], ["birthdayDisplay"]])
         .setMiniTree(true)
         .setOnCardUpdate(function (this: HTMLElement, d: f3.TreeDatum) {
           if (d.data._new_rel_data) return;
@@ -201,14 +227,70 @@ export default function FamilyTree() {
       const f3EditTree = f3Chart
         .editTree()
         .fixed()
-        .setFields(["first name", "last name", "birthday", "avatar"])
+        .setFields(["first name", "birthday", "avatar"])
         .setEditFirst(true);
 
       f3EditTree.setOnFormCreation(({ cont }) => {
+        // Rename "first name" label to "Name"
+        const firstNameInput = cont.querySelector<HTMLInputElement>('input[name="first name"]');
+        if (firstNameInput) {
+          const field = firstNameInput.closest(".f3-form-field");
+          const label = field?.querySelector("label");
+          if (label) label.textContent = "Name";
+        }
+
+        // Enhance birthday field with a native datepicker
+        const birthdayInput = cont.querySelector<HTMLInputElement>('input[name="birthday"]');
+        if (birthdayInput) {
+          birthdayInput.type = "date";
+          const field = birthdayInput.closest(".f3-form-field");
+           const label = field?.querySelector("label");
+           if (label) label.textContent = "Date of Birth";
+        }
+
+        // Close the form when the user submits successfully
+        const submitBtn = cont.querySelector<HTMLButtonElement>('button[type="submit"]');
+        if (submitBtn) {
+          submitBtn.addEventListener("click", () => {
+            // Defer to allow the library to process the submit first
+            setTimeout(() => {
+              f3EditTree.closeForm?.();
+            }, 0);
+          });
+        }
+
+        // Clarify what the cancel button does
+        const buttons = Array.from(
+          cont.querySelectorAll<HTMLButtonElement>("button")
+        );
+        const cancelBtn = buttons.find(
+          (btn) => btn.textContent?.trim().toLowerCase() === "cancel"
+        );
+        if (cancelBtn) {
+          cancelBtn.title = "Cancel closes this form and discards any unsaved changes.";
+
+          const note = document.createElement("div");
+          note.textContent = "Cancel will close this form and ignore any changes you made.";
+          note.style.fontSize = "11px";
+          note.style.opacity = "0.7";
+          note.style.marginTop = "4px";
+
+          const parent = cancelBtn.parentElement;
+          if (parent) {
+            parent.appendChild(note);
+          }
+        }
+
         const avatarInput = cont.querySelector<HTMLInputElement>('input[name="avatar"]');
         if (!avatarInput) return;
         const field = avatarInput.closest(".f3-form-field");
         if (!field) return;
+
+        // Rename avatar label to "Image"
+        const avatarLabel = field.querySelector("label");
+        if (avatarLabel) {
+          avatarLabel.textContent = "Image";
+        }
 
         avatarInput.setAttribute("type", "hidden");
         avatarInput.classList.add("f3-avatar-value");
@@ -269,6 +351,14 @@ export default function FamilyTree() {
       f3EditTree.setOnChange(() => {
         const data = f3EditTree.exportData();
         const payload = Array.isArray(data) ? data : [];
+
+        // Keep display field in sync with stored birthday value
+        for (const item of payload as any[]) {
+          const d = item?.data ?? {};
+          d.birthdayDisplay = formatBirthdayForDisplay(d.birthday);
+          item.data = d;
+        }
+
         fetch(DATA_URL, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
