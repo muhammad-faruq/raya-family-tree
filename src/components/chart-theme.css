@@ -57,6 +57,11 @@
   outline: 2px solid var(--theme-chart-male-border) !important;
 }
 
+/* Hide built-in undo/redo controls */
+.f3 .f3-history-controls {
+  display: none !important;
+}
+
 /* ========== Edit/Add person form (uses theme variables from themes.css) ========== */
 .f3-form-cont {
   background-color: var(--theme-form-bg) !important;

@@ -50,6 +50,9 @@ function openCropModal(imageDataUrl: string, onDone: (croppedDataUrl: string | n
   const btnApply = overlay.querySelector(".f3-crop-apply") as HTMLButtonElement;
 
   if (!img || !btnCancel || !btnApply) return;
+  btnApply.disabled = true;
+  btnApply.style.opacity = "0.6";
+  btnApply.style.cursor = "not-allowed";
 
   img.src = imageDataUrl;
   document.body.appendChild(overlay);
@@ -83,13 +86,20 @@ function openCropModal(imageDataUrl: string, onDone: (croppedDataUrl: string | n
           dragMode: "move",
           autoCropArea: 0.8,
         });
+        btnApply.disabled = false;
+        btnApply.style.opacity = "1";
+        btnApply.style.cursor = "pointer";
       })
       .catch((err) => {
         console.error("Failed to load cropper:", err);
-        close(imageDataUrl);
+        alert("Failed to initialize image cropper. Please try another image.");
+        close(null);
       });
   });
-  img.addEventListener("error", () => close(null));
+  img.addEventListener("error", () => {
+    alert("This image format is not supported on this device/browser. Try uploading a JPEG or PNG image.");
+    close(null);
+  });
 
   btnApply.addEventListener("click", () => {
     if (!cropper) return;
@@ -284,10 +294,11 @@ export default function FamilyTree() {
         avatarInput.setAttribute("type", "hidden");
         avatarInput.classList.add("f3-avatar-value");
 
-        const accept = "image/jpeg,image/png,image/gif,image/webp";
+        const accept = "image/*";
         const fileInput = document.createElement("input");
         fileInput.type = "file";
         fileInput.accept = accept;
+        // fileInput.setAttribute("capture", "environment");
         fileInput.className = "f3-avatar-file-input";
         fileInput.setAttribute("aria-label", "Upload avatar image");
 
@@ -326,6 +337,14 @@ export default function FamilyTree() {
         fileInput.addEventListener("change", () => {
           const file = fileInput.files?.[0];
           if (!file) return;
+          const lowerName = (file.name ?? "").toLowerCase();
+          const mime = (file.type ?? "").toLowerCase();
+          const isHeic = lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || mime.includes("heic") || mime.includes("heif");
+          if (isHeic) {
+            alert("HEIC/HEIF images are not supported for cropping in this browser. Please use JPEG or PNG.");
+            fileInput.value = "";
+            return;
+          }
           const reader = new FileReader();
           reader.onload = (e) => {
             const dataUrl = e.target?.result as string;
@@ -453,6 +472,7 @@ export default function FamilyTree() {
         }).catch((err) => console.error("Failed to persist family data:", err));
       });
 
+      f3Chart.updateMainId("8");
       f3Chart.updateTree({ initial: true });
     }
   }, []);
